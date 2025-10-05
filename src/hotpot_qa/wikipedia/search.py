@@ -1,7 +1,8 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
-from .model import RawFullWikiQA, WikipediaArticle, Wikipedia, Tokenizer
+from .model import WikipediaArticle, Wikipedia, Tokenizer
 from pathlib import Path
+from typing import List
 
 @dataclass
 class WikipediaSearchEngine:
@@ -26,7 +27,9 @@ class WikipediaSearchEngine:
         """
         search the title and find the corresponding article
         """
-        pass
+        if query in self.wikipedia.articles:
+            return [self.wikipedia.articles[query]]
+        return []
 
     def search_fuzzy(self, query: str) -> List[WikipediaArticle]:
         """
@@ -37,5 +40,4 @@ class WikipediaSearchEngine:
         # Search
 
         # Rank
-
-        pass
+        return []
