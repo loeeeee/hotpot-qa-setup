@@ -64,44 +64,4 @@ download_if_missing "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distrac
 download_if_missing "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_fullwiki_v1.json" "hotpot_dev_fullwiki_v1.json"
 download_if_missing "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_train_v1.1.json" "hotpot_train_v1.1.json"
 
-# Download GloVe
-GLOVE_DIR=./
-GLOVE_ZIP="$GLOVE_DIR/glove.840B.300d.zip"
-GLOVE_TXT="$GLOVE_DIR/glove.840B.300d.txt"
-
-if [[ -f "$GLOVE_TXT" ]]; then
-    echo "[INFO] GloVe vectors already extracted, skipping download and extraction"
-else
-    mkdir -p "$GLOVE_DIR"
-    echo "[INFO] Downloading GloVe vectors"
-    wget "http://nlp.stanford.edu/data/glove.840B.300d.zip" -O "$GLOVE_ZIP"
-    echo "[INFO] Extracting GloVe vectors"
-    unzip "$GLOVE_ZIP" -d "$GLOVE_DIR"
-    if [[ ! -f "$GLOVE_TXT" ]]; then
-        echo "[ERROR] GloVe extraction failed"
-        exit 1
-    fi
-    echo "[INFO] GloVe vectors extracted successfully"
-fi
-
-# Download Spacy language models
-echo "[INFO] Checking spaCy language model"
-if python3 - <<PY
-import sys
-try:
-    import spacy
-    nlp = spacy.load("en_core_web_sm")
-    print("spaCy en model already available")
-except ImportError:
-    sys.exit(1)
-except OSError:
-    sys.exit(1)
-PY
-then
-    echo "[INFO] spaCy en model already available, skipping download"
-else
-    echo "[INFO] Downloading spaCy en model"
-    python3 -m spacy download en_core_web_sm
-fi
-
 echo "[DONE] All downloads completed successfully"
