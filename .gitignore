@@ -213,4 +213,5 @@ hotpot_dev_distractor_v1.json
 hotpot_dev_fullwiki_v1.json
 hotpot_train_v1.1.json
 glove.840B.300d.txt
+enwiki-*-pages-articles*.xml.bz2
 /.clinerules
