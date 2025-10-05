@@ -214,6 +214,7 @@ hotpot_dev_fullwiki_v1.json
 hotpot_train_v1.1.json
 glove.840B.300d.txt
 enwiki-*-pages-articles*.xml.bz2
+enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2
 /.clinerules
 
 docs-vibe/

@@ -11,6 +11,10 @@ EXPECTED_SHA256 = {
     "hotpot_dev_fullwiki_v1.json": "2f1f3e594a3066a3084cc57950ca2713c24712adaad03af6ccce18d1846d5618",
 }
 
+EXPECTED_MD5 = {
+    "enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2": "62b8027b5803173d4383669d8d162509",
+}
+
 def compute_sha256(filename: str) -> str:
     """Compute SHA256 checksum of a file."""
     sha256 = hashlib.sha256()
@@ -19,18 +23,36 @@ def compute_sha256(filename: str) -> str:
             sha256.update(chunk)
     return sha256.hexdigest()
 
+def compute_md5(filename: str) -> str:
+    """Compute MD5 checksum of a file."""
+    md5 = hashlib.md5()
+    with open(filename, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
+
 def check_file_integrity(filename: str) -> bool:
-    """Check if file exists and matches expected SHA256 if available."""
+    """Check if file exists and matches expected checksum (SHA256 or MD5) if available."""
     if not os.path.isfile(filename):
         print(f"[INFO] File {filename} does not exist")
         return False
 
     base_filename = os.path.basename(filename)
-    expected = EXPECTED_SHA256.get(base_filename)
-    if expected:
-        actual = compute_sha256(filename)
-        if actual != expected:
-            print(f"[ERROR] SHA256 checksum mismatch for {filename}. Expected: {expected}, Got: {actual}")
+
+    # Check SHA256
+    expected_sha = EXPECTED_SHA256.get(base_filename)
+    if expected_sha:
+        actual_sha = compute_sha256(filename)
+        if actual_sha != expected_sha:
+            print(f"[ERROR] SHA256 checksum mismatch for {filename}. Expected: {expected_sha}, Got: {actual_sha}")
+            return False
+
+    # Check MD5
+    expected_md5 = EXPECTED_MD5.get(base_filename)
+    if expected_md5:
+        actual_md5 = compute_md5(filename)
+        if actual_md5 != expected_md5:
+            print(f"[ERROR] MD5 checksum mismatch for {filename}. Expected: {expected_md5}, Got: {actual_md5}")
             return False
 
     print(f"[INFO] File {filename} integrity verified")
@@ -92,8 +114,8 @@ def main():
         download_if_missing(url, str(filepath))
 
     # Wikipedia dump
-    wiki_url = "https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles-multistream.xml.bz2"
-    wiki_filename = "enwiki-latest-pages-articles-multistream.xml.bz2"
+    wiki_url = "https://nlp.stanford.edu/projects/hotpotqa/enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2"
+    wiki_filename = "enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2"
     wiki_filepath = raw_dir / wiki_filename
     download_if_missing(wiki_url, str(wiki_filepath))
 
