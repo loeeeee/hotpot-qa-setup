@@ -10,12 +10,14 @@ dependencies = [
     "tqdm>=4.66.0",
     "requests>=2.32.0",
     "beautifulsoup4>=4.12.0",
+    "ijson>=3.2.0",
 ]
 
 [project.scripts]
 hotpot-download = "hotpot_qa.data.download:main"
 hotpot-analyze = "hotpot_qa.data.analysis:main"
 hotpot-catalog = "hotpot_qa.data.catalog:main"
+hotpot-process = "hotpot_qa.data.processor:main"
 
 [tool.uv]
 dev-dependencies = []
