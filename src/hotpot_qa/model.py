@@ -44,3 +44,15 @@ class ArticleQA:
     @classmethod
     def from_raw_full_wiki(cls, raw_full_wiki: RawFullWikiQA) -> Self:
         pass
+
+@dataclass
+class ArticleQAManager:
+    """
+    Stores ArticleQA
+    """
+
+    def to_json(self, path: Path) -> None:
+        """
+        save ArticleQA into Json format
+        """
+        pass
