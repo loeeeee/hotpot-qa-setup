@@ -64,4 +64,7 @@ download_if_missing "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distrac
 download_if_missing "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_fullwiki_v1.json" "hotpot_dev_fullwiki_v1.json"
 download_if_missing "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_train_v1.1.json" "hotpot_train_v1.1.json"
 
+# Download Wikipedia Dump for Distractor Articles
+download_if_missing "https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles-multistream.xml.bz2" "enwiki-latest-pages-articles-multistream.xml.bz2"
+
 echo "[DONE] All downloads completed successfully"
