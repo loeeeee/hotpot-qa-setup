@@ -55,9 +55,21 @@ class JSONStreamer:
         """Get a specific value by key without loading entire file."""
         logger.debug(f"Getting value for key: {key}")
 
-        with open(self.file_path, 'r') as f:
-            data = json.load(f)
-            return data.get(key)
+        try:
+            import ijson  # type: ignore
+        except ImportError:
+            logger.warning("ijson not available, falling back to full load for get_value_by_key")
+            with open(self.file_path, 'r') as f:
+                data = json.load(f)
+                return data.get(key)
+
+        with open(self.file_path, 'rb') as f:
+            for current_key, value in ijson.kvitems(f, ''):
+                if current_key == key:
+                    return value
+
+        logger.debug(f"Key %s not found in %s", key, self.file_path)
+        return None
 
     def keys_exist(self, keys: List[str]) -> bool:
         """Check if specific keys exist in the JSON file."""
