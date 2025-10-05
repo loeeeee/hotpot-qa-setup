@@ -215,3 +215,5 @@ hotpot_train_v1.1.json
 glove.840B.300d.txt
 enwiki-*-pages-articles*.xml.bz2
 /.clinerules
+
+docs-vibe/
