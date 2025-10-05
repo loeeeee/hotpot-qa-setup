@@ -14,10 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
-hotpot-download = "hotpot_qa.data.download:main"
-hotpot-analyze = "hotpot_qa.data.analysis:main"
-hotpot-catalog = "hotpot_qa.data.catalog:main"
-hotpot-process = "hotpot_qa.data.processor:main"
+hotpot-download = "hotpot_qa.download:main"
+hotpot-process = "hotpot_qa.main:main"
 
 [tool.uv]
 dev-dependencies = []
