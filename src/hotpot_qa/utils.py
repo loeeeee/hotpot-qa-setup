@@ -1,19 +1,24 @@
+import json
 from collections.abc import Iterator
-from dataclasses import dataclass
-from .model import RawFullWikiQA, WikipediaArticle, Wikipedia, Tokenizer
+from typing import List
+from .model import RawFullWikiQA
 from pathlib import Path
 
-class RawFullWikiQAReader(Iterator):
+class RawFullWikiQALoader(Iterator):
     def __init__(self, full_wiki_path: Path) -> None:
-        super().__init__()
+        with open(full_wiki_path, 'r', encoding='utf-8') as f:
+            self.data: List[RawFullWikiQA] = json.load(f)
+        self.index = 0
 
-    def __iter__(self) -> Iterator[_T_co]:
-        return super().__iter__()
+    def __iter__(self) -> Iterator[RawFullWikiQA]:
+        return self
 
     def __next__(self) -> RawFullWikiQA:
         """
         return an instance of RawFullWikiQA from the loaded dictionary
         """
-
-        pass
-
+        if self.index >= len(self.data):
+            raise StopIteration
+        item = self.data[self.index]
+        self.index += 1
+        return item
