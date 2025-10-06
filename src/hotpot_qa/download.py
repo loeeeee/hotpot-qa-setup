@@ -3,6 +3,7 @@ import os
 import hashlib
 import requests
 import argparse
+import tarfile
 from pathlib import Path
 
 EXPECTED_SHA256 = {
@@ -119,7 +120,21 @@ def main():
     wiki_filepath = raw_dir / wiki_filename
     download_if_missing(wiki_url, str(wiki_filepath))
 
-    print("[DONE] All downloads completed successfully")
+    # Extract Wikipedia dump to processed directory
+    wiki_extracted_dir = processed_dir / "enwiki-20171001-pages-meta-current-withlinks-processed"
+    if not wiki_extracted_dir.exists():
+        print("[INFO] Extracting Wikipedia dump to processed directory...")
+        try:
+            with tarfile.open(wiki_filepath, 'r:bz2') as tar:
+                tar.extractall(processed_dir)
+            print(f"[INFO] Successfully extracted Wikipedia dump to {wiki_extracted_dir}")
+        except Exception as e:
+            print(f"[ERROR] Failed to extract Wikipedia dump: {e}")
+            raise
+    else:
+        print(f"[INFO] Wikipedia dump already extracted at {wiki_extracted_dir}")
+
+    print("[DONE] All downloads and extractions completed successfully")
 
 if __name__ == "__main__":
     main()

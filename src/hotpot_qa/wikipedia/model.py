@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Dict, List, Literal, Self
 import bz2
 import json
+import tarfile
+import tempfile
+from pathlib import Path
 
 
 @dataclass
@@ -21,19 +24,64 @@ class Wikipedia:
     @classmethod
     def from_bz(cls, path: Path) -> Self:
         """
-        Load Wikipedia articles from a bz2 file containing JSON lines.
+        Load Wikipedia articles from either:
+        1. A tar.bz2 file containing multiple bz2 files with JSON lines
+        2. A directory containing extracted bz2 files
         """
         instance = cls()
-        with bz2.open(path, 'rt') as f:
-            for line in f:
-                if line.strip():
-                    data = json.loads(line)
-                    id = data['id']
-                    url = data['url']
-                    title = data['title']
-                    text = ' '.join([' '.join(paragraph) for paragraph in data['text']])
-                    article = WikipediaArticle(id=id, url=url, title=title, text=text)
-                    instance.articles[title] = article
+
+        base_path = path
+
+        # Handle tar.bz2 file - extract to temporary directory
+        if path.suffix == '.bz2' and tarfile.is_tarfile(path):
+            print("Detected tar.bz2 file, extracting to temporary directory...")
+            temp_extract_dir = Path(tempfile.mkdtemp())
+            with tarfile.open(path, 'r:bz2') as tar:
+                tar.extractall(temp_extract_dir)
+            base_path = temp_extract_dir
+        elif path.is_dir():
+            print("Detected extracted directory, using directly...")
+        else:
+            raise ValueError(f"Path {path} is neither a valid tar.bz2 file nor a directory")
+
+        # Find all .bz2 files in the base directory
+        bz2_files = []
+        for file_path in base_path.rglob('*.bz2'):
+            bz2_files.append(file_path)
+
+        print(f"Found {len(bz2_files)} bz2 files to process")
+
+        # Process each bz2 file
+        for bz2_file in bz2_files:
+            print(f"Processing {bz2_file.name}...")
+            try:
+                with bz2.open(bz2_file, 'rt', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+                                id = data['id']
+                                url = data.get('url', f'https://en.wikipedia.org/wiki/{data["title"].replace(" ", "_")}')
+                                title = data['title']
+                                # Concatenate paragraphs
+                                if isinstance(data['text'], list):
+                                    if data['text'] and isinstance(data['text'][0], list):
+                                        # List of paragraphs, where each paragraph is a list of sentences
+                                        text = ' '.join([' '.join(para) for para in data['text']])
+                                    else:
+                                        # List of strings (sentences)
+                                        text = ' '.join(data['text'])
+                                else:
+                                    text = str(data['text'])
+
+                                article = WikipediaArticle(id=id, url=url, title=title, text=text)
+                                instance.articles[title] = article
+                            except json.JSONDecodeError:
+                                continue  # Skip malformed JSON lines
+            except Exception as e:
+                print(f"Error processing {bz2_file}: {e}")
+                continue
+
         return instance
 
 
