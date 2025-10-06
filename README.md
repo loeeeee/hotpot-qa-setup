@@ -65,9 +65,9 @@ uv sync
 uv run hotpot-download --raw-dir ./data --processed-dir ./data
 uv run hotpot-process \
   --hotpot-path ./data/raw/hotpot_dev_fullwiki_v1.json \
-  --wikipedia-path ./data/raw/enwiki-*-processed.tar.bz2 \
+  --wikipedia-path ./data/processed/enwiki-20171001-pages-meta-current-withlinks-processed \
   --output-dir ./data/processed \
-  --tokenizer simple
+  --tokenizer nltk
 ```
 
 ## Detailed Installation
