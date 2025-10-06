@@ -8,8 +8,67 @@ import math
 from collections import defaultdict
 import logging
 from tqdm import tqdm
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
+
+
+def _process_articles_batch(batch: List[Tuple[str, WikipediaArticle]], tokenizer_type: str) -> Tuple[Dict[str, int], Dict[str, List[Tuple[str, float]]]]:
+    """
+    Process a batch of articles and return local term document frequency and inverted index part.
+
+    Args:
+        batch: List of (title, article) tuples
+        tokenizer_type: Tokenizer type ("simple" or "nltk")
+
+    Returns:
+        Tuple of (term_doc_freq_dict, inverted_index_part_dict)
+    """
+    from typing import Literal
+    # Create tokenizer in the worker process
+    tokenizer = Tokenizer(_tokenizer=tokenizer_type if tokenizer_type in ["simple", "nltk"] else "simple")  # type: ignore
+
+    # Handle NLTK tokenizer initialization in worker process
+    if tokenizer_type == "nltk":
+        try:
+            import nltk
+            # Try to use punkt tokenizer to check if data is available
+            nltk.word_tokenize("test")
+        except LookupError:
+            # Download punkt data if not available
+            logger.info("Downloading NLTK punkt data in worker process...")
+            nltk.download('punkt', quiet=True)
+
+    local_term_doc_freq = defaultdict(int)
+    local_inverted_index = defaultdict(list)
+
+    for title, article in batch:
+        # Tokenize article content (title + text)
+        doc_tokens = tokenizer.tokenize((article.title + " " + article.text).lower())
+        doc_length = len(doc_tokens)
+
+        if doc_length == 0:
+            continue
+
+        token_counts = defaultdict(int)
+        seen_terms = set()
+
+        for token in doc_tokens:
+            token_counts[token] += 1
+            seen_terms.add(token)
+
+        # Update local term-doc frequencies
+        for term in seen_terms:
+            local_term_doc_freq[term] += 1
+
+        # Build local inverted index parts directly
+        for term, count in token_counts.items():
+            tf = count / doc_length
+            local_inverted_index[term].append((title, tf))
+
+    return dict(local_term_doc_freq), dict(local_inverted_index)
+
 
 @dataclass
 class WikipediaSearchEngine:
@@ -22,47 +81,56 @@ class WikipediaSearchEngine:
     # Internal
     def _build_search_index(self) -> None:
         """
-        construct a TF-IDF search index
+        construct a TF-IDF search index using parallel processing
         """
 
         logger.info("Building TF-IDF search index...")
 
         N = len(self.wikipedia.articles)
-        term_doc_freq = defaultdict(int)
-        term_doc_tf = defaultdict(lambda: defaultdict(float))
 
-        # First pass: collect term frequencies and document frequencies
-        for title, article in tqdm(self.wikipedia.articles.items(), desc="Processing articles", unit="article"):
-            # Tokenize article content (title + text)
-            doc_tokens = self.tokenizer.tokenize((article.title + " " + article.text).lower())
-            doc_length = len(doc_tokens)
+        # Determine batch size and number of processes
+        num_processes = min(multiprocessing.cpu_count(), 8)  # Cap at 8 to avoid memory issues
+        batch_size = max(1, N // (num_processes * 4))  # Aim for several batches per process
 
-            if doc_length == 0:
-                continue
+        # Split articles into batches
+        articles_items = list(self.wikipedia.articles.items())
+        batches = [articles_items[i:i + batch_size] for i in range(0, len(articles_items), batch_size)]
 
-            token_counts = defaultdict(int)
-            seen_terms = set()
+        logger.info(f"Processing {N} articles in {len(batches)} batches using {num_processes} processes")
 
-            for token in doc_tokens:
-                token_counts[token] += 1
-                seen_terms.add(token)
+        # Process batches in parallel
+        global_term_doc_freq = defaultdict(int)
+        global_inverted_index = defaultdict(list)
 
-            # Update term-doc frequencies
-            for term in seen_terms:
-                term_doc_freq[term] += 1
+        with ProcessPoolExecutor(max_workers=num_processes) as executor:
+            # Submit all batches
+            future_to_batch = {
+                executor.submit(_process_articles_batch, batch, self.tokenizer._tokenizer): batch
+                for batch in batches
+            }
 
-            # Store TF for this document
-            for term, count in token_counts.items():
-                term_doc_tf[term][title] = count / doc_length
+            # Collect results as they complete
+            for future in tqdm(as_completed(future_to_batch), total=len(batches), desc="Processing batches"):
+                try:
+                    local_term_doc_freq, local_inverted_index = future.result()
+
+                    # Merge term document frequencies
+                    for term, freq in local_term_doc_freq.items():
+                        global_term_doc_freq[term] += freq
+
+                    # Merge inverted index parts
+                    for term, entries in local_inverted_index.items():
+                        global_inverted_index[term].extend(entries)
+
+                except Exception as e:
+                    logger.error(f"Batch processing failed: {e}")
+                    raise
 
         # Compute IDF
-        self.idf_dict = {term: math.log(N / df) if df > 0 else 0 for term, df in term_doc_freq.items()}
+        self.idf_dict = {term: math.log(N / df) if df > 0 else 0 for term, df in global_term_doc_freq.items()}
 
-        # Build inverted index
-        self.inverted_index = defaultdict(list)
-        for term, docs in term_doc_tf.items():
-            for doc_id, tf in docs.items():
-                self.inverted_index[term].append((doc_id, tf))
+        # Convert defaultdict to regular dict for inverted_index
+        self.inverted_index = dict(global_inverted_index)
 
         self.index_built = True
         logger.info(f"Built TF-IDF index with {len(self.idf_dict)} terms across {N} documents")
