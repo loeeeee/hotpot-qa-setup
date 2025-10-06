@@ -1,4 +1,3 @@
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from .model import WikipediaArticle, Wikipedia, Tokenizer
 from pathlib import Path
@@ -155,6 +154,12 @@ class WikipediaSearchEngine:
         if query in self.wikipedia.articles:
             return [self.wikipedia.articles[query]]
         return []
+
+    def search_fuzzy_random(self, query: str) -> List[WikipediaArticle]:
+        """
+        get random articles from the Wikipedia
+        """
+        pass
 
     def search_fuzzy(self, query: str) -> List[WikipediaArticle]:
         """

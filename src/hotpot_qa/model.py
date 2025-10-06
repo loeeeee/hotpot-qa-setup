@@ -4,6 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Literal, Self, Tuple, TypedDict, Union
 
+from .wikipedia.model import TokenCounter
 from .wikipedia.search import WikipediaSearchEngine
 
 
@@ -35,14 +36,7 @@ class ArticleQA:
     question: str
     answer: str
     supporting_docs: List[Article] = field(default_factory=list)
-    distractor_docs: Dict[ContextSize, List[Article]] = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.distractor_docs = {
-            ContextSize.SM: [],
-            ContextSize.MD: [],
-            ContextSize.LA: [],
-        }
+    distractor_docs: List[Article] = field(default_factory=list)
 
     @classmethod
     def from_raw_full_wiki(cls, raw_full_wiki: RawFullWikiQA, search_engine: WikipediaSearchEngine) -> Self:
@@ -65,6 +59,7 @@ class ArticleQA:
 @dataclass
 class ArticleQAManager:
     articleqas: List[ArticleQA] = field(default_factory=list)
+    token_counter: TokenCounter = field(default_factory=lambda: TokenCounter("gpt"))
 
     def add(self, qa: ArticleQA) -> None:
         """Add an ArticleQA instance"""
@@ -73,6 +68,7 @@ class ArticleQAManager:
     def to_json_per_size(self, data_dir: Path) -> None:
         """
         Save ArticleQA into JSON format for each context size in data_dir
+        Skip ArticleQA instances where supporting_docs token count exceeds the context size limit
         """
         import json
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -80,14 +76,23 @@ class ArticleQAManager:
         for size in ContextSize:
             records = []
             for qa in self.articleqas:
-                distractors = qa.distractor_docs[size]
+                # Calculate total token count of supporting docs
+                supporting_texts = "\n".join(doc.text for doc in qa.supporting_docs)
+                supporting_token_count = self.token_counter.count_token(supporting_texts)
+
+                # Skip if supporting docs exceed context size limit
+                if supporting_token_count > size.value * 1000:
+                    logging.warning(f"Skipping QA {qa.pk} for {size.value}k context: supporting docs token count {supporting_token_count} exceeds limit {size.value * 1000}")
+                    continue
+
+                # distractors = qa.distractor_docs[size]
                 record = {
                     "id": qa.pk,
                     "question": qa.question,
                     "gold_answer": qa.answer,
                     "supporting_docs": [{"title": doc.title, "text": doc.text} for doc in qa.supporting_docs],
-                    "distractor_docs": [{"title": doc.title, "text": doc.text} for doc in distractors],
-                    "context_size": f"{size.value}k"
+                    "distractor_docs": [],
+                    "context_size": supporting_token_count
                 }
                 records.append(record)
 
