@@ -112,6 +112,22 @@ def main():
         except Exception as e:
             logger.warning(f"Failed to save to cache: {e}")
 
+    # Build TF-IDF index if not already present
+    if not search_engine.index_built:
+        logger.info("Building TF-IDF search index (this may take several minutes)...")
+        search_engine.build_index()
+        logger.info("TF-IDF index built successfully")
+
+        # Save updated engine with TF-IDF data to cache
+        logger.info(f"Saving updated WikipediaSearchEngine with TF-IDF index to cache: {cache_path}")
+        try:
+            search_engine.to_pickle(cache_path)
+            logger.info("Successfully saved updated cache")
+        except Exception as e:
+            logger.warning(f"Failed to save updated cache: {e}")
+    else:
+        logger.info("TF-IDF index already available in cached search engine")
+
     logger.info("Loading HotpotQA data...")
     loader = RawFullWikiQALoader(hotpot_path)
     raw_qas = list(loader)
