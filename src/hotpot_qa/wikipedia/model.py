@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -6,7 +7,7 @@ import bz2
 import json
 import tarfile
 import tempfile
-from pathlib import Path
+from tqdm import tqdm
 
 
 @dataclass
@@ -29,18 +30,19 @@ class Wikipedia:
         2. A directory containing extracted bz2 files
         """
         instance = cls()
+        logger = logging.getLogger(__name__)
 
         base_path = path
 
         # Handle tar.bz2 file - extract to temporary directory
         if path.suffix == '.bz2' and tarfile.is_tarfile(path):
-            print("Detected tar.bz2 file, extracting to temporary directory...")
+            logger.info("Detected tar.bz2 file, extracting to temporary directory...")
             temp_extract_dir = Path(tempfile.mkdtemp())
             with tarfile.open(path, 'r:bz2') as tar:
                 tar.extractall(temp_extract_dir)
             base_path = temp_extract_dir
         elif path.is_dir():
-            print("Detected extracted directory, using directly...")
+            logger.info("Detected extracted directory, using directly...")
         else:
             raise ValueError(f"Path {path} is neither a valid tar.bz2 file nor a directory")
 
@@ -49,11 +51,12 @@ class Wikipedia:
         for file_path in base_path.rglob('*.bz2'):
             bz2_files.append(file_path)
 
-        print(f"Found {len(bz2_files)} bz2 files to process")
+        logger.info(f"Found {len(bz2_files)} bz2 files to process")
 
+        total_articles = 0
         # Process each bz2 file
-        for bz2_file in bz2_files:
-            print(f"Processing {bz2_file.name}...")
+        for bz2_file in tqdm(bz2_files, desc="Processing BZ2 files"):
+            file_articles = 0
             try:
                 with bz2.open(bz2_file, 'rt', encoding='utf-8', errors='ignore') as f:
                     for line in f:
@@ -76,12 +79,16 @@ class Wikipedia:
 
                                 article = WikipediaArticle(id=id, url=url, title=title, text=text)
                                 instance.articles[title] = article
+                                file_articles += 1
                             except json.JSONDecodeError:
                                 continue  # Skip malformed JSON lines
+                total_articles += file_articles
+                tqdm.write(f"Processed {bz2_file.name}: {file_articles} articles")
             except Exception as e:
-                print(f"Error processing {bz2_file}: {e}")
+                logger.warning(f"Error processing {bz2_file}: {e}")
                 continue
 
+        logger.info(f"Total articles loaded: {total_articles}")
         return instance
 
 
