@@ -1,8 +1,7 @@
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Literal, Self, Optional, Tuple
+from typing import ClassVar, Dict, List, Literal, Self, Optional, Tuple
 import bz2
 import json
 import tarfile
@@ -10,6 +9,10 @@ import tempfile
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
+import re
+import urllib.parse as urlparse
+import tiktoken
+import nltk
 
 
 @dataclass
@@ -20,21 +23,27 @@ class TokenCounter:
         """
         main interface of the TokenCounter, route to specific method
         """
-        pass
+        if self.method == "simple":
+            return TokenCounter._simple(text)
+        elif self.method == "gpt":
+            return TokenCounter._gpt(text)
+        else:
+            raise ValueError("Unknown method")
 
     @staticmethod
     def _simple(text: str) -> int:
         """
         count words based on the space
         """
-        pass
+        return len(text.split())
 
     @staticmethod
     def _gpt(text: str) -> int:
         """
         count words based on gpt tokenizer
         """
-        pass
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(text))
 
 
 @dataclass
@@ -45,17 +54,49 @@ class WikipediaArticle:
     token: List[int] = field(default_factory=list)                # The number of tokens for each paragraph
     links: List[str] = field(default_factory=list)                # A collection of all the links to the other wikipedia article
 
+    # Classvar
+    token_counter: ClassVar[TokenCounter]
+
+    @property
+    def text(self) -> str:
+        return "\n".join(self.paragraphs)
+
+    @staticmethod
+    def _clean_and_extract(text: str):
+        links = set()
+        pattern = re.compile(r'<a href="([^"]+)">(.*?)</a>', re.IGNORECASE)
+        def replacer(match):
+            link = urlparse.unquote(match.group(1))
+            display = match.group(2)
+            links.add(link)
+            return display
+        clean_text = pattern.sub(replacer, text)
+        return clean_text, links
+
     @classmethod
     def from_json(cls, line: str) -> Self:
         """
         load an instance of Wikipedia Article from a string that is supposed have JSON format
         """
 
-        # Extract links
+        data = json.loads(line)
+        id = data['id']
+        title = data['title']
 
-        # Count tokens
+        paragraphs = []
+        all_links = set()
+        for para_sentences in data['text']:
+            if not para_sentences:
+                continue
+            full_para = ' '.join(para_sentences)
+            clean_para, para_links = cls._clean_and_extract(full_para)
+            paragraphs.append(clean_para)
+            all_links.update(para_links)
 
-        pass
+        links = list(all_links)
+        token_counts = [cls.token_counter.count_token(p) for p in paragraphs]
+
+        return cls(id=id, title=title, paragraphs=paragraphs, links=links, token=token_counts)
 
 
 def process_single_bz2_file(bz2_file: Path) -> Tuple[int, Dict[str, WikipediaArticle], Optional[str]]:
@@ -64,6 +105,7 @@ def process_single_bz2_file(bz2_file: Path) -> Tuple[int, Dict[str, WikipediaArt
 
     Args:
         bz2_file: Path to the BZ2 file to process
+        token_counter: TokenCounter instance
 
     Returns:
         Tuple of (number of articles processed, dict of articles by title, error message if any)
@@ -72,28 +114,15 @@ def process_single_bz2_file(bz2_file: Path) -> Tuple[int, Dict[str, WikipediaArt
     article_count = 0
     error_message = None
 
+    WikipediaArticle.token_counter = TokenCounter(method="gpt")
+
     try:
         with bz2.open(bz2_file, 'rt', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 if line.strip():
                     try:
-                        data = json.loads(line)
-                        id = data['id']
-                        url = data.get('url', f'https://en.wikipedia.org/wiki/{data["title"].replace(" ", "_")}')
-                        title = data['title']
-                        # Concatenate paragraphs
-                        if isinstance(data['text'], list):
-                            if data['text'] and isinstance(data['text'][0], list):
-                                # List of paragraphs, where each paragraph is a list of sentences
-                                text = ' '.join([' '.join(para) for para in data['text']])
-                            else:
-                                # List of strings (sentences)
-                                text = ' '.join(data['text'])
-                        else:
-                            text = str(data['text'])
-
-                        article = WikipediaArticle(id=id, url=url, title=title, text=text)
-                        articles[title] = article
+                        article = WikipediaArticle.from_json(line)
+                        articles[article.title] = article
                         article_count += 1
                     except json.JSONDecodeError:
                         continue  # Skip malformed JSON lines
@@ -105,9 +134,11 @@ def process_single_bz2_file(bz2_file: Path) -> Tuple[int, Dict[str, WikipediaArt
     return article_count, articles, error_message
 
 
+
 @dataclass
 class Wikipedia:
     articles: Dict[str, WikipediaArticle] = field(default_factory=dict)
+    token_counter: TokenCounter = field(default_factory=lambda: TokenCounter("simple"))
 
     @classmethod
     def from_bz(cls, path: Path) -> Self:
@@ -146,78 +177,38 @@ class Wikipedia:
         max_processes = min(multiprocessing.cpu_count(), len(bz2_files))  # Cap at 8 to avoid memory issues
         logger.info(f"Using {max_processes} parallel processes for loading")
 
-        try:
-            # Try parallel processing
-            with ProcessPoolExecutor(max_workers=max_processes) as executor:
-                # Submit all tasks
-                future_to_file = {executor.submit(process_single_bz2_file, bz2_file): bz2_file for bz2_file in bz2_files}
+        # Try parallel processing
+        with ProcessPoolExecutor(max_workers=max_processes) as executor:
+            # Submit all tasks
+            future_to_file = {executor.submit(process_single_bz2_file, bz2_file): bz2_file for bz2_file in bz2_files}
 
-                # Process results as they complete
-                completed_files = 0
-                with tqdm(total=len(bz2_files), desc="Processing BZ2 files") as pbar:
-                    for future in as_completed(future_to_file):
-                        bz2_file = future_to_file[future]
-                        try:
-                            file_articles, file_articles_dict, error_message = future.result()
+            # Process results as they complete
+            completed_files = 0
+            with tqdm(total=len(bz2_files), desc="Processing BZ2 files") as pbar:
+                for future in as_completed(future_to_file):
+                    bz2_file = future_to_file[future]
+                    try:
+                        file_articles, file_articles_dict, error_message = future.result()
 
-                            if error_message:
-                                logger.warning(f"Error processing {bz2_file.name}: {error_message}")
-                            else:
-                                # Merge results into main articles dict
-                                collision_count = 0
-                                for title, article in file_articles_dict.items():
-                                    if title in instance.articles:
-                                        logger.warning(f"Title collision for '{title}' from {bz2_file.name}, overwriting")
-                                        collision_count += 1
-                                    instance.articles[title] = article
+                        if error_message:
+                            logger.warning(f"Error processing {bz2_file.name}: {error_message}")
+                        else:
+                            # Merge results into main articles dict
+                            collision_count = 0
+                            for title, article in file_articles_dict.items():
+                                if title in instance.articles:
+                                    logger.warning(f"Title collision for '{title}' from {bz2_file.name}, overwriting")
+                                    collision_count += 1
+                                instance.articles[title] = article
 
-                                total_articles += file_articles
-                                # tqdm.write(f"Processed {bz2_file.name}: {file_articles} articles ({collision_count} collisions)")
+                            total_articles += file_articles
+                            # tqdm.write(f"Processed {bz2_file.name}: {file_articles} articles ({collision_count} collisions)")
 
-                        except Exception as e:
-                            logger.warning(f"Failed to get result for {bz2_file.name}: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to get result for {bz2_file.name}: {e}")
 
-                        completed_files += 1
-                        pbar.update(1)
-
-        except Exception as e:
-            # Fallback to serial processing if parallel fails
-            logger.warning(f"Parallel processing failed ({e}), falling back to serial processing")
-            total_articles = 0
-            instance.articles.clear()
-
-            for bz2_file in tqdm(bz2_files, desc="Processing BZ2 files (serial)"):
-                file_articles = 0
-                try:
-                    with bz2.open(bz2_file, 'rt', encoding='utf-8', errors='ignore') as f:
-                        for line in f:
-                            if line.strip():
-                                try:
-                                    data = json.loads(line)
-                                    id = data['id']
-                                    url = data.get('url', f'https://en.wikipedia.org/wiki/{data["title"].replace(" ", "_")}')
-                                    title = data['title']
-                                    # Concatenate paragraphs
-                                    if isinstance(data['text'], list):
-                                        if data['text'] and isinstance(data['text'][0], list):
-                                            # List of paragraphs, where each paragraph is a list of sentences
-                                            text = ' '.join([' '.join(para) for para in data['text']])
-                                        else:
-                                            # List of strings (sentences)
-                                            text = ' '.join(data['text'])
-                                    else:
-                                        text = str(data['text'])
-
-                                    article = WikipediaArticle(id=id, url=url, title=title, text=text)
-                                    instance.articles[title] = article
-                                    file_articles += 1
-                                except json.JSONDecodeError:
-                                    continue  # Skip malformed JSON lines
-                    total_articles += file_articles
-                    tqdm.write(f"Processed {bz2_file.name}: {file_articles} articles")
-                except Exception as e:
-                    logger.warning(f"Error processing {bz2_file}: {e}")
-                    continue
+                    completed_files += 1
+                    pbar.update(1)
 
         logger.info(f"Total articles loaded: {total_articles}")
         return instance
@@ -250,11 +241,5 @@ class Tokenizer:
         """
         Use NLTK to tokenize the query
         """
-        try:
-            import nltk
-            return nltk.word_tokenize(query)
-        except ImportError:
-            raise ImportError("NLTK required for nltk tokenizer")
+        return nltk.word_tokenize(query)
 
-
-# Todo List (Optional - Plan Mode)
