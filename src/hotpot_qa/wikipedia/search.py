@@ -41,3 +41,17 @@ class WikipediaSearchEngine:
 
         # Rank
         return []
+
+    # Cache System
+    @classmethod
+    def from_pickle(cls, path: Path) -> Self:
+        """
+        restore cache from path
+        """
+        pass
+
+    def to_pickle(self, path: Path) -> None:
+        """
+        pickle self.wikipedia, self.tokenizer
+        """
+        pass
