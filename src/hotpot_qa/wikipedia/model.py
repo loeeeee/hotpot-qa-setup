@@ -13,11 +13,49 @@ from tqdm import tqdm
 
 
 @dataclass
+class TokenCounter:
+    method: Literal["simple", "gpt"]
+
+    def count_token(self, text: str) -> int:
+        """
+        main interface of the TokenCounter, route to specific method
+        """
+        pass
+
+    @staticmethod
+    def _simple(text: str) -> int:
+        """
+        count words based on the space
+        """
+        pass
+
+    @staticmethod
+    def _gpt(text: str) -> int:
+        """
+        count words based on gpt tokenizer
+        """
+        pass
+
+
+@dataclass
 class WikipediaArticle:
-    id: str
-    url: str
-    title: str
-    text: str
+    id: str             # Unique ID loaded from the wikipedia dump
+    title: str          # A unique string loaded from the wikipedia dump, the primary way of referring to data
+    paragraphs: List[str] = field(default_factory=list)           # The text without links to other articles
+    token: List[int] = field(default_factory=list)                # The number of tokens for each paragraph
+    links: List[str] = field(default_factory=list)                # A collection of all the links to the other wikipedia article
+
+    @classmethod
+    def from_json(cls, line: str) -> Self:
+        """
+        load an instance of Wikipedia Article from a string that is supposed have JSON format
+        """
+
+        # Extract links
+
+        # Count tokens
+
+        pass
 
 
 def process_single_bz2_file(bz2_file: Path) -> Tuple[int, Dict[str, WikipediaArticle], Optional[str]]:
