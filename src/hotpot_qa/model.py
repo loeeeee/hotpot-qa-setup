@@ -30,7 +30,7 @@ class ArticleQA:
     question: str
     answer: str
     supporting_docs: List[WikipediaArticle] = field(default_factory=list)
-    distractor_docs: List[WikipediaArticle] = field(default_factory=list)
+    distractor_docs: List[WikipediaArticle] = field(default_factory=list) # A list of searching results, ranked
 
     @classmethod
     def from_raw_full_wiki(cls, raw_full_wiki: RawFullWikiQA, search_engine: WikipediaSearchEngine) -> Self:
