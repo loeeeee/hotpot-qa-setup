@@ -61,6 +61,10 @@ class WikipediaArticle:
     def text(self) -> str:
         return "\n".join(self.paragraphs)
 
+    @property
+    def total_token(self) -> int:
+        return sum(self.token)
+
     @staticmethod
     def _clean_and_extract(text: str):
         links = set()
