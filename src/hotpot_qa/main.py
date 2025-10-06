@@ -7,6 +7,7 @@ and exports to JSON format for each context size (8k, 32k, 128k).
 """
 import argparse
 import logging
+import hashlib
 from pathlib import Path
 
 from tqdm import tqdm
@@ -74,16 +75,42 @@ def main():
         logger.error(f"Wikipedia dump file not found: {wikipedia_path}")
         return 1
 
-    logger.info("Loading Wikipedia dump... (this may take several minutes)")
-    try:
-        wikipedia = Wikipedia.from_bz(wikipedia_path)
-        logger.info(f"Loaded {len(wikipedia.articles)} Wikipedia articles")
-    except Exception as e:
-        logger.error(f"Failed to load Wikipedia dump: {e}")
-        return 1
+    # Create cache key based on wikipedia path and tokenizer
+    cache_key = hashlib.md5(f"{wikipedia_path}:{args.tokenizer}".encode()).hexdigest()[:8]
+    cache_path = Path(".cache") / f"wikipedia_search_{cache_key}.pkl"
 
-    tokenizer = Tokenizer(args.tokenizer)
-    search_engine = WikipediaSearchEngine(wikipedia, tokenizer)
+    # Try to load from cache first
+    if cache_path.exists():
+        logger.info(f"Loading WikipediaSearchEngine from cache: {cache_path}")
+        try:
+            search_engine = WikipediaSearchEngine.from_pickle(cache_path)
+            logger.info("Successfully loaded from cache")
+        except Exception as e:
+            logger.warning(f"Failed to load from cache: {e}, will rebuild")
+            cache_path.unlink(missing_ok=True)
+            search_engine = None
+    else:
+        search_engine = None
+
+    # Build search engine if not loaded from cache
+    if search_engine is None:
+        logger.info("Loading Wikipedia dump... (this may take several minutes)")
+        try:
+            wikipedia = Wikipedia.from_bz(wikipedia_path)
+            logger.info(f"Loaded {len(wikipedia.articles)} Wikipedia articles")
+        except Exception as e:
+            logger.error(f"Failed to load Wikipedia dump: {e}")
+            return 1
+
+        tokenizer = Tokenizer(args.tokenizer)
+        search_engine = WikipediaSearchEngine(wikipedia, tokenizer)
+
+        logger.info(f"Saving WikipediaSearchEngine to cache: {cache_path}")
+        try:
+            search_engine.to_pickle(cache_path)
+            logger.info("Successfully saved to cache")
+        except Exception as e:
+            logger.warning(f"Failed to save to cache: {e}")
 
     logger.info("Loading HotpotQA data...")
     loader = RawFullWikiQALoader(hotpot_path)

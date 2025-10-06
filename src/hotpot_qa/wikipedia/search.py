@@ -2,7 +2,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from .model import WikipediaArticle, Wikipedia, Tokenizer
 from pathlib import Path
-from typing import List
+from typing import List, Self
+import pickle
 
 @dataclass
 class WikipediaSearchEngine:
@@ -48,10 +49,13 @@ class WikipediaSearchEngine:
         """
         restore cache from path
         """
-        pass
+        with open(path, 'rb') as f:
+            return pickle.load(f)
 
     def to_pickle(self, path: Path) -> None:
         """
-        pickle self.wikipedia, self.tokenizer
+        pickle all
         """
-        pass
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
