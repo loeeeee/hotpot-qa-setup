@@ -8,8 +8,8 @@ class TestWikipediaSearch(unittest.TestCase):
 
     def setUp(self):
         # Create mock articles
-        article1 = WikipediaArticle(id="1", url="http://test.com/1", title="Test Article", text="This is a test article.")
-        article2 = WikipediaArticle(id="2", url="http://test.com/2", title="Another Article", text="This is another article.")
+        article1 = WikipediaArticle(id="1", title="Test Article", paragraphs=["This is a test article."], links=[], token=[5])
+        article2 = WikipediaArticle(id="2", title="Another Article", paragraphs=["This is another article."], links=[], token=[5])
 
         # Create mock Wikipedia instance
         wiki = Wikipedia()
