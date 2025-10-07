@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, List, Literal, Self, Optional, Tuple, Set, Dict
+from typing import ClassVar, List, Literal, Self, Optional, Tuple, Set, Dict, cast
 import bz2
 import json
 import multiprocessing
@@ -16,6 +16,7 @@ from .sqlite_backend import WikipediaSQLiteIndex, WikipediaSQLiteConfig
 @dataclass
 class TokenCounter:
     method: Literal["simple", "gpt"]
+    _gpt_encoding: ClassVar[Optional[tiktoken.Encoding]] = None
 
     def count_token(self, text: str) -> int:
         """
@@ -40,8 +41,11 @@ class TokenCounter:
         """
         count words based on gpt tokenizer
         """
-        enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
+        encoding = TokenCounter._gpt_encoding
+        if encoding is None:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            TokenCounter._gpt_encoding = encoding
+        return len(encoding.encode(text))
 
 
 @dataclass
