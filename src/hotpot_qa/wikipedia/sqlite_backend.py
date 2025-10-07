@@ -6,7 +6,7 @@ import tempfile
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Set, Dict, Any, Tuple
+from typing import List, Optional, Set, Dict, Any, Tuple, TYPE_CHECKING
 import multiprocessing.util
 import multiprocessing
 import tarfile
@@ -14,7 +14,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from threading import local as thread_local
 from tqdm import tqdm
 
-from .model import WikipediaArticle, TokenCounter
+if TYPE_CHECKING:
+    from .model import WikipediaArticle
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,8 @@ class WikipediaSQLiteIndex:
             conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory map
             conn.execute("PRAGMA cache_size = 1000")  # 1MB cache
 
-            # Register cleanup on process exit
-            multiprocessing.util.Finalize(conn, conn.close)
+            # Disable connection check in multiprocessing context
+            # Connections must be created and used in the same process
             self._connection_local.connection = conn
 
         return self._connection_local.connection
@@ -72,7 +73,7 @@ class WikipediaSQLiteIndex:
                 CREATE INDEX IF NOT EXISTS idx_title ON articles(title COLLATE NOCASE)
             """)
 
-    def _serialize_article(self, article: WikipediaArticle) -> Dict[str, Any]:
+    def _serialize_article(self, article: "WikipediaArticle") -> Dict[str, Any]:
         """Serialize a WikipediaArticle to database fields."""
         return {
             'id': article.id,
@@ -84,9 +85,11 @@ class WikipediaSQLiteIndex:
             'total_token': article.total_token
         }
 
-    def _deserialize_row(self, row: sqlite3.Row) -> WikipediaArticle:
+    def _deserialize_row(self, row: sqlite3.Row) -> "WikipediaArticle":
         """Deserialize a database row to WikipediaArticle."""
-        return WikipediaArticle(
+        # Import here to avoid circular import
+        from . import model
+        return model.WikipediaArticle(
             id=row['id'],
             title=row['title'],
             paragraphs=json.loads(row['paragraphs_json']),
@@ -94,7 +97,7 @@ class WikipediaSQLiteIndex:
             links=json.loads(row['links_json'])
         )
 
-    def bulk_insert(self, articles: List[WikipediaArticle]) -> None:
+    def bulk_insert(self, articles: List["WikipediaArticle"]) -> None:
         """Insert multiple articles in batches."""
         conn = self._get_connection()
 
@@ -122,7 +125,7 @@ class WikipediaSQLiteIndex:
 
         logger.info(f"Inserted {total_inserted} articles into SQLite database")
 
-    def get_article_by_title(self, title: str) -> Optional[WikipediaArticle]:
+    def get_article_by_title(self, title: str) -> Optional["WikipediaArticle"]:
         """Retrieve a single article by exact title match."""
         conn = self._get_connection()
         cursor = conn.execute("""
@@ -131,7 +134,7 @@ class WikipediaSQLiteIndex:
         row = cursor.fetchone()
         return self._deserialize_row(row) if row else None
 
-    def get_random_articles(self, limit: int, exclude_titles: Set[str]) -> List[WikipediaArticle]:
+    def get_random_articles(self, limit: int, exclude_titles: Set[str]) -> List["WikipediaArticle"]:
         """Get random articles excluding specified titles."""
         if not limit:
             return []
@@ -166,7 +169,7 @@ class WikipediaSQLiteIndex:
         return cursor.fetchone() is not None
 
 
-def _process_single_bz2_file(bz2_file: Path) -> Tuple[int, List[WikipediaArticle], Optional[str]]:
+def _process_single_bz2_file(bz2_file: Path) -> Tuple[int, List["WikipediaArticle"], Optional[str]]:
     """
     Process a single BZ2 file and return (article_count, articles_list, error_message).
 
@@ -176,6 +179,7 @@ def _process_single_bz2_file(bz2_file: Path) -> Tuple[int, List[WikipediaArticle
     Returns:
         Tuple of (number of articles processed, list of articles, error message if any)
     """
+    from .model import TokenCounter, WikipediaArticle
     articles = []
     error_message = None
 
