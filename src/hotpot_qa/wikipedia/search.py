@@ -35,7 +35,7 @@ class WikipediaSearchEngine:
         self.vectorizer = TfidfVectorizer(
             tokenizer=self.tokenizer.tokenize,
             lowercase=False,  # already lowercased in documents
-            norm=None,  # no L2 normalization, matches current scoring (sums without norming)
+            norm="l2", 
             smooth_idf=False,  # IDF = log(n/df), close to current log(N/df)
             sublinear_tf=False,  # linear TF scaling
             use_idf=True
