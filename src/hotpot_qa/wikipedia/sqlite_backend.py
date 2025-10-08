@@ -4,6 +4,7 @@ import json
 import bz2
 import tempfile
 import shutil
+import signal
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set, Dict, Any, Tuple, TYPE_CHECKING, Sequence
@@ -50,6 +51,9 @@ def _safe_queue_put(queue, item, stop_event) -> bool:
             if stop_event.is_set():
                 return False
             continue
+        except KeyboardInterrupt:
+            stop_event.set()
+            return False
 
 
 def _serialize_article_for_db(article: "WikipediaArticle") -> SerializedArticleRow:
@@ -73,57 +77,60 @@ def _worker_parse_bz2(task_queue, result_queue, chunk_size: int, stop_event) -> 
 
     notified_done = False
 
-    while not stop_event.is_set():
-        try:
-            path_str = task_queue.get(timeout=1.0)
-        except Empty:
-            continue
+    try:
+        while not stop_event.is_set():
+            try:
+                path_str = task_queue.get(timeout=1.0)
+            except Empty:
+                continue
 
-        if path_str is None:
-            if _safe_queue_put(result_queue, (_WORKER_DONE, None, None), stop_event):
-                notified_done = True
-            break
-
-        path = Path(path_str)
-        article_count = 0
-        chunk: List[SerializedArticleRow] = []
-
-        try:
-            with bz2.open(path, "rt", encoding="utf-8", errors="replace") as source:
-                for line in source:
-                    if stop_event.is_set():
-                        break
-                    if not line.strip():
-                        continue
-                    try:
-                        article = WikipediaArticle.from_json(line)
-                    except json.JSONDecodeError:
-                        continue  # Skip malformed JSON lines
-
-                    chunk.append(_serialize_article_for_db(article))
-                    article_count += 1
-
-                    if len(chunk) >= chunk_size:
-                        if not _safe_queue_put(result_queue, (_WORKER_BATCH, chunk), stop_event):
-                            chunk = []
-                            break
-                        chunk = []
-
-            if stop_event.is_set():
+            if path_str is None:
+                if _safe_queue_put(result_queue, (_WORKER_DONE, None, None), stop_event):
+                    notified_done = True
                 break
 
-            if chunk:
-                if not _safe_queue_put(result_queue, (_WORKER_BATCH, chunk), stop_event):
+            path = Path(path_str)
+            article_count = 0
+            chunk: List[SerializedArticleRow] = []
+
+            try:
+                with bz2.open(path, "rt", encoding="utf-8", errors="replace") as source:
+                    for line in source:
+                        if stop_event.is_set():
+                            break
+                        if not line.strip():
+                            continue
+                        try:
+                            article = WikipediaArticle.from_json(line)
+                        except json.JSONDecodeError:
+                            continue  # Skip malformed JSON lines
+
+                        chunk.append(_serialize_article_for_db(article))
+                        article_count += 1
+
+                        if len(chunk) >= chunk_size:
+                            if not _safe_queue_put(result_queue, (_WORKER_BATCH, chunk), stop_event):
+                                chunk = []
+                                break
+                            chunk = []
+
+                if stop_event.is_set():
                     break
 
-            if not _safe_queue_put(result_queue, (_WORKER_FILE_DONE, path_str, article_count), stop_event):
-                break
-        except Exception as exc:  # noqa: BLE001
-            if not _safe_queue_put(result_queue, (_WORKER_ERROR, path_str, str(exc)), stop_event):
-                break
+                if chunk:
+                    if not _safe_queue_put(result_queue, (_WORKER_BATCH, chunk), stop_event):
+                        break
 
-    if not notified_done:
-        _safe_queue_put(result_queue, (_WORKER_DONE, None, None), stop_event)
+                if not _safe_queue_put(result_queue, (_WORKER_FILE_DONE, path_str, article_count), stop_event):
+                    break
+            except Exception as exc:  # noqa: BLE001
+                if not _safe_queue_put(result_queue, (_WORKER_ERROR, path_str, str(exc)), stop_event):
+                    break
+    except KeyboardInterrupt:
+        stop_event.set()
+    finally:
+        if not notified_done:
+            _safe_queue_put(result_queue, (_WORKER_DONE, None, None), stop_event)
 
 
 @dataclass
@@ -263,7 +270,7 @@ class WikipediaSQLiteIndex:
             SELECT * FROM articles {exclude_condition}
             ORDER BY RANDOM() LIMIT ?
             """,
-            list(exclude_titles) + [limit],
+            list(exclude_titles) + [imit],
         )
 
         return [self._deserialize_row(row) for row in cursor.fetchall()]
@@ -333,6 +340,14 @@ def load_dump_to_sqlite(dump_path: Path, db_path: Path, batch_size: int = 1000) 
     task_queue = ctx.Queue(maxsize=max_processes * 2)
     result_queue = ctx.Queue(maxsize=max_processes * 4)
     stop_event = ctx.Event()
+
+    original_sigint_handler = signal.getsignal(signal.SIGINT)
+
+    def _sigint_handler(signum, frame):
+        stop_event.set()
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _sigint_handler)
 
     workers = []
     for _ in range(max_processes):
@@ -443,10 +458,12 @@ def load_dump_to_sqlite(dump_path: Path, db_path: Path, batch_size: int = 1000) 
         for proc in workers:
             proc.join()
 
-    task_queue.close()
-    task_queue.join_thread()
-    result_queue.close()
-    result_queue.join_thread()
+        signal.signal(signal.SIGINT, original_sigint_handler)
+
+        task_queue.close()
+        task_queue.join_thread()
+        result_queue.close()
+        result_queue.join_thread()
 
     if temp_extract_dir:
         shutil.rmtree(temp_extract_dir)
